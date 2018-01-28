@@ -7,6 +7,33 @@ type room struct {
     clients map[*client]bool //ルーム内に在室中のクライアントを保持する
 }
 
+const (
+    socketBufferSize = 1024
+    messageBufferSize = 256
+)
+
+var upgradeer = &websocket.Upgrader{//HTTP接続をアップグレードするためにwebsocket.Upgrader型を作成。websocket利用に必要。 
+    ReadBufferSize: socketBufferSize,
+    WriteBufferSize: socketBufferSize,
+}
+
+func (r *room) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    socket, err := upgrader.Upgrader(w, req, nil) //websocketのコネクションを取得
+    if err != nil {
+        log.Fatal("ServeHTTP:", err)
+        return
+    }
+    client := &client{
+        socket: socket,
+        send: make(chan []byte, messageBufferSize),
+        room: r,
+    }
+    r.join <- client
+    defer func() { r.leave <- client }()
+    go client.write()
+    client.read()
+}
+
 func (r *room) run() {
     for {
         switch {
@@ -25,5 +52,14 @@ func (r *room) run() {
                 }
             }
         }
+    }
+}
+
+func (r *room) *room {
+    return &room{
+        forward: make(chan []byte),
+        join: make(chan *client),
+        leave: make(chan *client),
+        clients: make(map[*client]bool),
     }
 }
